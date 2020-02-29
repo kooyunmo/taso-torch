@@ -61,6 +61,16 @@ def get_activation_mode(activation):
     else:
         assert(False)
 
+cdef convert_to_python(float *ptr, int n1, int n2, int n3, int n4):
+    cdef int i
+    cdef int n = n1 * n2 * n3 * n4
+    l = list()
+    for i in range(n):
+        l.append(ptr[i])
+
+    return np.array(l).reshape(n1, n2, n3, n4)
+
+
 cdef class PyModel:
     cdef Model *p_model # Hold a Model instance
 
@@ -214,9 +224,13 @@ cdef class PyGraph:
         for i in range(0, len(dims)):
             dim_array[i] = dims[i]
 
-        cdef TensorHandle handle = self.p_graph.forward_prop(dim_array, arr.data.as_floats)
-        t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
-        return PyTensor(t)
+        array_ptr = self.p_graph.forward_prop(dim_array, arr.data.as_floats)
+       
+        pythonlist = convert_to_python(array_ptr, 1, 512, 7, 7)
+
+        self.p_graph.freeptr(array_ptr)
+        
+        return pythonlist
     
 
     def cost(self):

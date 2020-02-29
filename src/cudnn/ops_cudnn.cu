@@ -152,39 +152,24 @@ float Model::measure_oplist_runtime(const std::vector<OpBase*>& opBaseList)
 /********** Added ************/
 // TensorHandle is typedef of Tensor *
 // TODO output dimension should be calculated (passed by argument...?)
-TensorHandle Model::get_runtime_output(const int* dims, const DATATYPE* data, const std::vector<OpBase*> *opBaseList)
+float* Model::get_runtime_output(const int* dims, const DATATYPE* data, const std::vector<OpBase*> *opBaseList)
 {
-    TensorHandle result = new Tensor();
-
     const int batch_count = dims[0];
     const int in_channel = dims[1];
     const int in_height = dims[2];
     const int in_width = dims[3];
 
     float inData[batch_count][in_channel][in_height][in_width];     // host input data
-    float outData[1][256][7][7];    // host output data
+    // TODO outData should be dynamically allocated
+    // float outData[1][256][7][7];    // host output data
+    float* outData = (float *)malloc(1 * 256 * 7 * 7 * sizeof(float));
     float* inData_d;         // cuda device input data
     float* outData_d;        // cuda device output data
 
     const std::vector<OpBase*> oplist = *(opBaseList);
-
-    /*
-    unsigned int offset = 0;
-    for (int i = 0; i < batch_count; i++) {
-        for (int j = 0; j < in_channel; j++) {
-            for (int k = 0; k < in_height; k++) {
-                for (int l = 0; l < in_width; l++) {
-                    inData[i][j][k][l] = *(data + offset);
-                    offset += 1;
-                    //printf("[%.5f] ", inData[i][j][k][l]);
-                }
-            }
-        }
-    }*/
+ 
     memcpy(inData, data, sizeof(data)); 
 
-    //printf("size: %lu\n", sizeof(inData));
-    //printf("input shape: %d, %d, %d, %d\n", batch_count, in_channel, in_height, in_width);
 
     // A pointer for the input of first operator, and a pointer for the output of last operator
     inData_d = (float *)((oplist[0]->inputs[0]).data_ptr);
@@ -193,58 +178,17 @@ TensorHandle Model::get_runtime_output(const int* dims, const DATATYPE* data, co
     // memcpy form CPU to GPU
     checkCUDA(cudaMemcpy(inData_d, inData, sizeof(inData), cudaMemcpyHostToDevice));
 
-    /*
-    // DEBUG
-    printf("N: %d\n", opBaseList[0]->inputs[0].dim[0]);
-    printf("C: %d\n", opBaseList[0]->inputs[0].dim[1]);
-    printf("H: %d\n", opBaseList[0]->inputs[0].dim[2]);
-    printf("W: %d\n", opBaseList[0]->inputs[0].dim[3]);
-    printf("opBaseList.size(): %lu\n", opBaseList.size());
-    */
-    
     //checkCUDA(cudaEventRecord(startEvent));
     for (int i = 0; i < oplist.size(); i++) {
         oplist[i]->forward();
-        // printf("input addr: %p | ouput addr: %p\n", (float *)(opBaseList[i]->inputs[0].data_ptr), (float *)(opBaseList[i]->outputs[0].data_ptr));      
     }
         
     // printf("output address: %p\n", outData_d);
-    checkCUDA(cudaMemcpy(outData, outData_d, sizeof(outData), cudaMemcpyDeviceToHost));    // TODO uncomment this
-    result->data_ptr = outData;
+    checkCUDA(cudaMemcpy(outData, outData_d, sizeof(outData), cudaMemcpyDeviceToHost));
     
-    /*
-    std::cout << "outData:" << endl;
-    std::cout << "[";
-    for (int i = 0; i < 1; i++) {
-        std::cout << "[";
-        for (int j = 0; j < 2048; j++) {
-            std::cout << "[";
-            for (int k = 0; k < 7; k++) {
-                std::cout << "[";
-                for (int l = 0; l < 7; l++) {
-                    printf("%.8f ", outData[i][j][k][l]);
-                }
-                std::cout << "]" << endl;
-            }
-            std::cout << "]" << endl;
-        }
-        std::cout << "]" << endl;
-    }
-    std::cout << "]" << endl;
-    */
-
-    //checkCUDA(cudaFree(inData_d));
-    //checkCUDA(cudaFree(outData_d));
-
-    //checkCUDA(cudaEventRecord(endEvent));
-    //checkCUDA(cudaEventSynchronize(endEvent));
-    //float milliseconds;
-    //cudaEventElapsedTime(&milliseconds, startEvent, endEvent);
-    //printf("cudaEvent time: %.5f\n", milliseconds);
-
-    // TODO outData should be returned
-    return result;
+    return outData;
 }
+
 
 void* Model::allocate_memory(size_t size, const DATATYPE* data_initial)
 {
