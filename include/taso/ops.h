@@ -59,7 +59,7 @@ namespace taso {
 #define REPEAT_TIMES 32
 #define WARMUP_TIMES 8
 const size_t WORK_SPACE_SIZE = (size_t)2 * 1024 * 1024 * 1024; // 2GB
-typedef float DATATYPE;
+typedef float DATATYPE;         // DATATYPE is fixed to float
 
 class Model;
 class OpBase;
@@ -489,6 +489,7 @@ class Graph {
 public:
   Graph();
   TensorHandle new_input(int dim, const int* dims);
+  TensorHandle new_input_with_value(int dim, const int* dims);
   TensorHandle new_weight(int dim, const int* dims, const DATATYPE* data);
   TensorHandle new_weight(const Tensor& input);
   void add_edge(Op srcOp, Op dstOp, int srcIdx, int dstIdx);
@@ -659,6 +660,9 @@ public:
   float total_cost(void);
   float run();
   void print_costs(void);
+  TensorHandle get_output(const int* dims, const DATATYPE* data);       // added
+  void buildOpBaseList();       // added
+  TensorHandle forward_prop(const int* dims, const DATATYPE* data);       // added
   void print_measurements(void);
 #ifdef TRT
   void buildTRTNetwork(INetworkDefinition *network);
@@ -671,6 +675,7 @@ private:
   TensorHandle weight_wrapper(const TensorHandle _weight);
 public:
   Model *model;
+  std::vector<OpBase*> opBaseListSingleton;
   float totalCost;
   std::map<Op, std::set<Edge, EdgeCompare>, OpCompare> inEdges, outEdges;
   struct GraphSubst {
@@ -1442,6 +1447,8 @@ public:
   bool copy_memory(DATATYPE* dst, const DATATYPE* src, size_t size);
   float measure_oplist_runtime(const std::vector<OpBase*>& list);
   bool broadcastable(const Tensor& t1, const Tensor& t2);
+  // added: defined in src/cudnn/ops_cudnn.cu
+  TensorHandle get_runtime_output(const int* dims, const DATATYPE* data, const std::vector<OpBase*> *list);
 public:
   bool isTraining;
   bool print_cost;

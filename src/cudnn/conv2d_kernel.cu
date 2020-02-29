@@ -87,24 +87,32 @@ void Conv2D::unmap(void)
 
 void Conv2D::forward(bool block)
 {
-  const float alpha = 1.0f;
-  const float beta = 0.0f;
-  if (activation != AC_MODE_NONE) {
-    checkCUDNN(cudnnConvolutionBiasActivationForward(
-        model->dnn, &alpha, inputTensor, inputs[0].data_ptr, filterDesc, inputs[1].data_ptr,
-        convDesc, fwdAlgo, model->workSpace, model->workSpaceSize,
-        &beta, outputTensor, outputs[0].data_ptr, biasTensor, biasPtr, actiDesc,
-        outputTensor, outputs[0].data_ptr));
-  } else {
-    checkCUDNN(cudnnConvolutionForward(
-        model->dnn, &alpha, inputTensor, inputs[0].data_ptr, filterDesc, inputs[1].data_ptr,
-        convDesc, fwdAlgo, model->workSpace, model->workSpaceSize,
-        &beta, outputTensor, outputs[0].data_ptr));
-    checkCUDNN(cudnnAddTensor(model->dnn, &alpha, biasTensor, biasPtr,
-        &alpha, outputTensor, outputs[0].data_ptr));
-  }
-  if (block)
-    checkCUDA(cudaDeviceSynchronize());
+    // DEBUG
+    // printf("\nConv2D::forward called!!!!");
+
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+    if (activation != AC_MODE_NONE) {
+        checkCUDNN(cudnnConvolutionBiasActivationForward(
+            model->dnn, &alpha, inputTensor, inputs[0].data_ptr, filterDesc, inputs[1].data_ptr,
+            convDesc, fwdAlgo, model->workSpace, model->workSpaceSize,
+            &beta, outputTensor, outputs[0].data_ptr, biasTensor, biasPtr, actiDesc,
+            outputTensor, outputs[0].data_ptr));
+    } else {
+        checkCUDNN(cudnnConvolutionForward(
+            model->dnn, &alpha, inputTensor, inputs[0].data_ptr, filterDesc, inputs[1].data_ptr,
+            convDesc, fwdAlgo, model->workSpace, model->workSpaceSize,
+            &beta, outputTensor, outputs[0].data_ptr));
+        checkCUDNN(cudnnAddTensor(model->dnn, &alpha, biasTensor, biasPtr,
+            &alpha, outputTensor, outputs[0].data_ptr));
+    }
+    if (block)
+        checkCUDA(cudaDeviceSynchronize());
+
+    // DEBUG
+    // float host_input[inputs[0].dim[0]][inputs[0].dim[1]][inputs[0].dim[2]][inputs[0].dim[3]];
+    // checkCUDA(cudaMemcpy(host_input, inputs[0].data_ptr, sizeof(host_input), cudaMemcpyDeviceToHost));
+    // printf(" [%.7f]\n", host_input[0][0][0][0]);
 }
 
 void Model::measure_conv2d_cost(Conv2D* conv)

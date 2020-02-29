@@ -169,6 +169,56 @@ cdef class PyGraph:
     def run_time(self):
         return self.p_graph.run()
 
+    ####### added #######
+    def run_forward(self, data):
+        '''
+        @param:
+            - data should be numpy array
+        '''
+        cdef int dim_array[16]
+
+        assert (isinstance(data, np.ndarray))
+ 
+        dims = data.shape
+        cdef int ndim = len(dims)
+        assert (ndim < 16)
+
+        val = array.array('f', data.flatten().tolist())
+        cdef array.array arr = val
+
+        #print("arr: {}".format(arr))
+        #print("shape: {}".format(len(arr)))
+
+        for i in range(0, len(dims)):
+            dim_array[i] = dims[i]
+
+        cdef TensorHandle handle = self.p_graph.get_output(dim_array, arr.data.as_floats)
+        t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
+        return PyTensor(t)
+
+    def build_graph(self):
+        self.p_graph.buildOpBaseList()
+
+    def taso_forward(self, data):
+        '''
+        @param:
+            - data should be numpy array
+        '''
+        cdef int dim_array[16]
+        # assert (isinstance(data, np.ndarray))
+        dims = data.shape
+
+        val = array.array('f', data.flatten().tolist())
+        cdef array.array arr = val
+
+        for i in range(0, len(dims)):
+            dim_array[i] = dims[i]
+
+        cdef TensorHandle handle = self.p_graph.forward_prop(dim_array, arr.data.as_floats)
+        t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
+        return PyTensor(t)
+    
+
     def cost(self):
         return self.p_graph.total_cost()
 
@@ -509,6 +559,17 @@ cdef class PyGraph:
         for i in range(0, len(dims)):
             dim_array[i] = dims[i]
         cdef TensorHandle handle = self.p_graph.new_input(ndim, dim_array)
+        t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
+        return PyTensor(t)
+
+    # added
+    def new_input_with_value(self, *, tuple dims):
+        cdef int ndim = len(dims)
+        cdef int dim_array[16]
+        assert (ndim < 16)
+        for i in range(0, len(dims)):
+            dim_array[i] = dims[i]
+        cdef TensorHandle handle = self.p_graph.new_input_with_value(ndim, dim_array)
         t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
         return PyTensor(t)
 

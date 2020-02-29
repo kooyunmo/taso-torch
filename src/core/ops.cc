@@ -15,8 +15,10 @@
 
 #include "taso/ops.h"
 #include "taso/substitution.h"
+#include "taso/cuda_helper.h"
 #include <iostream>
 #include <fstream>
+#include <cstdlib>
 using namespace std;
 using namespace taso;
 
@@ -343,6 +345,7 @@ std::string Op::op_to_string(const OpBase* ptr)
 }
 
 static Model* model_singleton = NULL;
+static std::vector<OpBase*> op_base_list_singleton;
 
 Graph::Graph()
 : totalCost(-1.0f)
@@ -351,6 +354,8 @@ Graph::Graph()
     model_singleton = new Model();
   }
   model = model_singleton;
+  opBaseListSingleton = op_base_list_singleton;
+
   model->print_cost = false;
   //size_t inputSize = sizeof(DATATYPE) * n * c * h * w;
   //checkCUDA(cudaMalloc(&input.ptr, inputSize));
@@ -362,12 +367,39 @@ void Graph::print_measurements(void)
   model->print_cost = true;
 }
 
+/***
+ * @params:
+ *  - ndim: the number of dimensions
+ *  - dims: array containing the numbers of each dimension
+ */ 
 TensorHandle Graph::new_input(int ndim, const int* dims)
 {
-  TensorHandle t = new Tensor(ndim, dims, GUID_INPUT);
-  t = input_wrapper(t);
-  return t;
+    // Tensor(int ndim, const int* dims, size_t guid, DATATYPE* data = NULL)
+    // : numDim(ndim), idx(0), op(guid, NULL), data_ptr(data)
+    // 
+    // Since 'data' is NULL, the 'void* data_ptr' is not initialize. 
+    TensorHandle t = new Tensor(ndim, dims, GUID_INPUT);
+    t = input_wrapper(t);
+    return t;
 }
+
+// added
+TensorHandle Graph::new_input_with_value(int ndim, const int* dims)
+{
+    float init_data[dims[0]][dims[1]][dims[2]][dims[3]];
+
+    for (int i=0; i<dims[0]; i++)
+        for (int j=0; j<dims[1]; j++)
+            for (int k=0; k<dims[2]; k++)
+                for(int l=0; l<dims[3]; l++)
+                    init_data[i][j][k][l] = (static_cast <float> (rand()) / static_cast <float> (RAND_MAX));
+    TensorHandle t = new Tensor(ndim, dims, GUID_INPUT);
+
+    checkCUDA(cudaMemcpy((float *)(t->data_ptr), init_data, sizeof(init_data), cudaMemcpyHostToDevice));
+    
+    return t;
+}
+
 
 TensorHandle Graph::new_weight(int ndim, const int* dims, const DATATYPE* weight_initial)
 {
@@ -1151,6 +1183,7 @@ float Graph::run(void)
     assert(inList.size() > 0);
     OpBase* opPtr = NULL;
     // Step 1: prepare inputs
+    // printf("Step 1: prepare inputs\n");
     Tensor inputs[MAX_NUM_INPUTS];
     if ((op.ptr->type == OP_INPUT) || (op.ptr->type == OP_WEIGHT)) {
       assert(inList.size() == 1);
@@ -1178,8 +1211,13 @@ float Graph::run(void)
         inputs[it2->dstIdx] = opBaseList[idx2]->outputs[it2->srcIdx];
       }
     }
+
+    // DEBUG
+    // printf("inputs[0]: %s\n", to_string(inputs[0]));
+
 #ifdef DEADCODE
     // Step 1: prepare inputs
+    // printf("Step1: prepare inputs\n");
     for (it2 = inList.begin(); it2 != inList.end(); it2++) {
       Edge e = *it2;
       if (e.srcOp.guid == GUID_INPUT) {
@@ -1204,6 +1242,7 @@ float Graph::run(void)
     }
 #endif
     // Step 2: create Ops
+    // printf("Step2: create Ops\n");
     switch (op.ptr->type) {
       case OP_CONV2D:
       {
@@ -1328,6 +1367,7 @@ float Graph::run(void)
         assert(false);
     }
     // Step 3: map new Op
+    // printf("Step 3: map new Op\n");
     opPtr->map();
     opBaseList.push_back(opPtr);
     for (it2 = outList.begin(); it2 != outList.end(); it2++) {
@@ -1359,7 +1399,7 @@ float Graph::run(void)
   assert(opList.size() == inEdges.size());
   assert(opList.size() == opBaseList.size());
 
-  return model->measure_oplist_runtime(opBaseList);
+  return model->measure_oplist_runtime(opBaseList);  // <== measure time
 }
 
 void Graph::print_costs(void)
@@ -1376,3 +1416,496 @@ void Graph::print_costs(void)
          mem_acc * 4.0 / 1024.0 / 1024.0, num_kernels);
 }
 
+
+
+/******** Added ********/
+TensorHandle Graph::get_output(const int* dims, const DATATYPE* data)
+{
+    std::map<Op, int, OpCompare> todos;
+    std::map<Op, std::set<Edge, EdgeCompare>, OpCompare>::const_iterator it;
+    std::vector<Op> opList;
+    std::vector<OpBase*> opBaseList;
+    for (it = inEdges.begin(); it != inEdges.end(); it++) {
+        int cnt = 0;
+        std::set<Edge, EdgeCompare> inList = it->second;
+        std::set<Edge, EdgeCompare>::const_iterator it2;
+        for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+            if (it2->srcOp.guid > GUID_PRESERVED) cnt ++;
+        }
+        todos[it->first] = cnt;
+        if (todos[it->first] == 0)
+            opList.push_back(it->first);
+    }
+    size_t i = 0;
+    while (i < opList.size()) {
+        Op op = opList[i++];
+        std::set<Edge, EdgeCompare> outList = outEdges[op];
+        std::set<Edge, EdgeCompare> inList = inEdges[op];
+        std::set<Edge, EdgeCompare>::const_iterator it2;
+        assert(inList.size() > 0);
+        OpBase* opPtr = NULL;
+        // Step 1: prepare inputs
+        // printf("Step 1: prepare inputs\n");
+        Tensor inputs[MAX_NUM_INPUTS];
+        if ((op.ptr->type == OP_INPUT) || (op.ptr->type == OP_WEIGHT)) {
+            assert(inList.size() == 1);
+            //Edge e = *inList.begin();
+            //assert(e.srcOp.ptr == NULL); // NoOp's input must not be any Op
+            Tensor t = op.ptr->inputs[0];
+            size_t size = sizeof(DATATYPE);
+            for (int j = 0; j < t.numDim; j++)
+                size *= t.dim[j];
+            if (op.ptr->type == OP_INPUT) {
+                assert(t.data_ptr == NULL);
+                t.data_ptr = (DATATYPE*) model->allocate_memory(size);
+            } else {
+                assert(t.data_ptr != NULL);
+            }
+            inputs[0] = t;
+        } else {
+            for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+                size_t idx2 = 0;
+                for (idx2 = 0; idx2 < opList.size(); idx2++) {
+                    if (opList[idx2].guid == it2->srcOp.guid) break;
+                }
+                assert(idx2 < i);
+                assert(inputs[it2->dstIdx].data_ptr == NULL); // No duplicated dstIdxes
+                inputs[it2->dstIdx] = opBaseList[idx2]->outputs[it2->srcIdx];
+            }
+        }
+
+        // DEBUG
+        // printf("inputs[0]: %s\n", to_string(inputs[0]));
+
+#ifdef DEADCODE
+        // Step 1: prepare inputs
+        // printf("Step1: prepare inputs\n");
+        for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+            Edge e = *it2;
+            if (e.srcOp.guid == GUID_INPUT) {
+                Tensor t = op.ptr->inputs[e.dstIdx];
+                t.ptr = (DATATYPE*) model->allocate_memory(sizeof(DATATYPE) * t.size());
+                assert(inputs[e.dstIdx].ptr == NULL); // No duplicated dstIdxes
+                inputs[e.dstIdx] = t;
+            } else if (e.srcOp.guid = GUID_WEIGHT) {
+                Tensor t = op.ptr->inputs[e.dstIdx];
+                t.ptr = (DATATYPE*) model->allocate_memory(sizeof(DATATYPE) * t.size());
+                assert(inputs[e.dstIdx].ptr == NULL); // No duplicated dstIdxes
+                inputs[e.dstIdx] = t;
+            } else {
+                size_t idx2 = 0;
+                for (idx2 = 0; idx2 < opList.size(); idx2++) {
+                    if (opList[idx2].guid == e.srcOp.guid) break;
+                }
+                assert(idx2 < i);
+                assert(inputs[e.dstIdx].ptr == NULL); // No duplicated dstIdxes
+                inputs[e.dstIdx] = opBaseList[idx2]->outputs[it2->srcIdx];
+            }
+        }
+#endif
+        // Step 2: create Ops
+        // printf("Step2: create Ops\n");
+        switch (op.ptr->type) {
+            case OP_CONV2D:
+            {
+                Conv2D* conv = (Conv2D*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Conv2D(model, inputs[0], inputs[1],
+                           conv->strideH, conv->strideW,
+                           conv->padding, conv->activation);
+#ifdef USE_CUDNN
+                ((Conv2D*)opPtr)->fwdAlgo = conv->fwdAlgo;
+#endif
+                break;
+            }
+            case OP_MATMUL:
+            {
+                Matmul* matmul = (Matmul*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Matmul(model, inputs[0], inputs[1], matmul->activation);
+                break;
+            }
+            case OP_RESHAPE:
+            {
+                Reshape* reshape = (Reshape*) op.ptr;
+                assert(inList.size() == 1);
+                std::vector<int> shape;
+                for (int i = 0; i < reshape->outputs[0].numDim; i++)
+                    shape.push_back(reshape->outputs[0].dim[i]);
+                opPtr = new Reshape(model, inputs[0], shape);
+                break;
+            }
+            case OP_TRANSPOSE:
+            {
+                Transpose* transpose = (Transpose*) op.ptr;
+                assert(inList.size() == 1);
+                int ndim = inputs[0].numDim, permIdx = transpose->permIdx;
+                std::vector<int> permVec;
+                int permArray[MAX_DIM];
+                for (int i = ndim - 1; i >= 0; i--) {
+                    permArray[i] = permIdx % ndim;
+                    permIdx = permIdx / ndim;
+                }
+                assert(permIdx == 0);
+                for (int i = 0; i < ndim; i++)
+                    for (int j = i + 1; j < ndim; j++)
+                        assert(permArray[i] != permArray[j]);
+                for (int i = 0; i < ndim; i++)
+                    permVec.push_back(permArray[i]);
+                opPtr = new Transpose(model, inputs[0], permVec, transpose->shuffle);
+                break;
+            }
+            case OP_EW_ADD:
+            case OP_EW_MUL:
+            {
+                //Element* element = (Element*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Element(model, op.ptr->type, inputs[0], inputs[1]);
+                break;
+            }
+            case OP_ENLARGE:
+            {
+                //Enlarge* enlarge = (Enlarge*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Enlarge(model, inputs[0], inputs[1]);
+                break;
+            }
+            case OP_MERGE_GCONV:
+            {
+                MergeGConv* merge = (MergeGConv*) op.ptr;
+                assert(inList.size() == 1);
+                opPtr = new MergeGConv(model, inputs[0], merge->count);
+                break;
+            }
+            case OP_POOL2D_MAX:
+            case OP_POOL2D_AVG:
+            {
+                Pool2D* pool = (Pool2D*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Pool2D(model, inputs[0], inputs[1], pool->type,
+                                   pool->kernelH, pool->kernelW,
+                                   pool->strideH, pool->strideW,
+                                   pool->padding, pool->activation);
+                break;
+            }
+            case OP_RELU:
+            case OP_SIGMOID:
+            case OP_TANH:
+            {
+                Activation* act = (Activation*) op.ptr;
+                assert(inList.size() == 1);
+                opPtr = new Activation(model, inputs[0], act->type, act->inPlace);
+                break;
+            }
+            case OP_BATCHNORM:
+            {
+                assert(inList.size() == 5);
+                opPtr = new BatchNorm(model, inputs[0], inputs[1], inputs[2], inputs[3], inputs[4]);
+                break;
+            }
+            case OP_SPLIT:
+            {
+                Split* split = (Split*) op.ptr;
+                assert(inList.size() == 1);
+                opPtr = new Split(model, inputs[0], split->axis, split->sizes);
+                break;
+            }
+            case OP_INPUT:
+            case OP_WEIGHT:
+            case OP_DROPOUT:
+            {
+                assert(inList.size() == 1);
+                opPtr = new NoOp(model, inputs[0], op.ptr->type);
+                break;
+            }
+            case OP_CONCAT:
+            {
+                Concat* concat = (Concat*) op.ptr;
+                opPtr = new Concat(model, concat->axis, inList.size(), inputs, concat->needCopy);
+                break;
+            }
+            default:
+                printf("op.type = %d\n", op.ptr->type);
+                assert(false);
+        }
+        // Step 3: map new Op
+        // printf("Step 3: map new Op\n");
+        opPtr->map();
+        opBaseList.push_back(opPtr);
+        for (it2 = outList.begin(); it2 != outList.end(); it2++) {
+            todos[it2->dstOp] --;
+            //printf("myOp(%zu) dstOp(%zu) dstType(%d) dstTodos(%d)\n",
+            //    it2->srcOp.guid, it2->dstOp.guid,
+            //    it2->dstOp.ptr->type, todos[it2->dstOp]);
+            if (todos[it2->dstOp] == 0) {
+                opList.push_back(it2->dstOp);
+            }
+        }
+    }
+#ifdef VERBOSE_PRINTS
+    for (int i =0; i < opList.size(); i++) {
+        printf("opList[%d]: guid(%zu) type(%d)\n", i, opList[i].guid, opList[i].ptr->type);
+    }
+    for (it = inEdges.begin(); it != inEdges.end(); it++) {
+        printf("op: guid(%zu) type(%d)\n", it->first.guid, it->first.ptr->type);
+        std::set<Edge, EdgeCompare> inList = it->second;
+        std::set<Edge, EdgeCompare>::const_iterator it2;
+        int cnt = 0;
+        for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+            printf("    inEdge[%d]: srcOp(%zu) srcIdx(%d) dstOp(%zu) dstIdx(%d)\n", cnt++, it2->srcOp.guid, it2->srcIdx, it2->dstOp.guid, it2->dstIdx);
+        }
+    }
+#endif
+
+    assert(opList.size() == inEdges.size());
+    assert(opList.size() == opBaseList.size());
+
+    return model->get_runtime_output(dims, data, &opBaseList);
+}
+
+
+void Graph::buildOpBaseList(void)
+{
+    std::map<Op, int, OpCompare> todos;
+    std::map<Op, std::set<Edge, EdgeCompare>, OpCompare>::const_iterator it;
+    std::vector<Op> opList;
+    for (it = inEdges.begin(); it != inEdges.end(); it++) {
+        int cnt = 0;
+        std::set<Edge, EdgeCompare> inList = it->second;
+        std::set<Edge, EdgeCompare>::const_iterator it2;
+        for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+            if (it2->srcOp.guid > GUID_PRESERVED) cnt ++;
+        }
+        todos[it->first] = cnt;
+        if (todos[it->first] == 0)
+            opList.push_back(it->first);
+    }
+    size_t i = 0;
+    while (i < opList.size()) {
+        Op op = opList[i++];
+        std::set<Edge, EdgeCompare> outList = outEdges[op];
+        std::set<Edge, EdgeCompare> inList = inEdges[op];
+        std::set<Edge, EdgeCompare>::const_iterator it2;
+        assert(inList.size() > 0);
+        OpBase* opPtr = NULL;
+        // Step 1: prepare inputs
+        // printf("Step 1: prepare inputs\n");
+        Tensor inputs[MAX_NUM_INPUTS];
+        if ((op.ptr->type == OP_INPUT) || (op.ptr->type == OP_WEIGHT)) {
+            assert(inList.size() == 1);
+            //Edge e = *inList.begin();
+            //assert(e.srcOp.ptr == NULL); // NoOp's input must not be any Op
+            Tensor t = op.ptr->inputs[0];
+            size_t size = sizeof(DATATYPE);
+            for (int j = 0; j < t.numDim; j++)
+                size *= t.dim[j];
+            if (op.ptr->type == OP_INPUT) {
+                assert(t.data_ptr == NULL);
+                t.data_ptr = (DATATYPE*) model->allocate_memory(size);
+            } else {
+                assert(t.data_ptr != NULL);
+            }
+            inputs[0] = t;
+        } else {
+            for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+                size_t idx2 = 0;
+                for (idx2 = 0; idx2 < opList.size(); idx2++) {
+                    if (opList[idx2].guid == it2->srcOp.guid) break;
+                }
+                assert(idx2 < i);
+                assert(inputs[it2->dstIdx].data_ptr == NULL); // No duplicated dstIdxes
+                inputs[it2->dstIdx] = opBaseListSingleton[idx2]->outputs[it2->srcIdx];
+            }
+        }
+
+        // DEBUG
+        // printf("inputs[0]: %s\n", to_string(inputs[0]));
+
+#ifdef DEADCODE
+        // Step 1: prepare inputs
+        // printf("Step1: prepare inputs\n");
+        for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+            Edge e = *it2;
+            if (e.srcOp.guid == GUID_INPUT) {
+                Tensor t = op.ptr->inputs[e.dstIdx];
+                t.ptr = (DATATYPE*) model->allocate_memory(sizeof(DATATYPE) * t.size());
+                assert(inputs[e.dstIdx].ptr == NULL); // No duplicated dstIdxes
+                inputs[e.dstIdx] = t;
+            } else if (e.srcOp.guid = GUID_WEIGHT) {
+                Tensor t = op.ptr->inputs[e.dstIdx];
+                t.ptr = (DATATYPE*) model->allocate_memory(sizeof(DATATYPE) * t.size());
+                assert(inputs[e.dstIdx].ptr == NULL); // No duplicated dstIdxes
+                inputs[e.dstIdx] = t;
+            } else {
+                size_t idx2 = 0;
+                for (idx2 = 0; idx2 < opList.size(); idx2++) {
+                    if (opList[idx2].guid == e.srcOp.guid) break;
+                }
+                assert(idx2 < i);
+                assert(inputs[e.dstIdx].ptr == NULL); // No duplicated dstIdxes
+                inputs[e.dstIdx] = opBaseListSingleton[idx2]->outputs[it2->srcIdx];
+            }
+        }
+#endif
+        // Step 2: create Ops
+        // printf("Step2: create Ops\n");
+        switch (op.ptr->type) {
+            case OP_CONV2D:
+            {
+                Conv2D* conv = (Conv2D*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Conv2D(model, inputs[0], inputs[1],
+                           conv->strideH, conv->strideW,
+                           conv->padding, conv->activation);
+#ifdef USE_CUDNN
+                ((Conv2D*)opPtr)->fwdAlgo = conv->fwdAlgo;
+#endif
+                break;
+            }
+            case OP_MATMUL:
+            {
+                Matmul* matmul = (Matmul*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Matmul(model, inputs[0], inputs[1], matmul->activation);
+                break;
+            }
+            case OP_RESHAPE:
+            {
+                Reshape* reshape = (Reshape*) op.ptr;
+                assert(inList.size() == 1);
+                std::vector<int> shape;
+                for (int i = 0; i < reshape->outputs[0].numDim; i++)
+                    shape.push_back(reshape->outputs[0].dim[i]);
+                opPtr = new Reshape(model, inputs[0], shape);
+                break;
+            }
+            case OP_TRANSPOSE:
+            {
+                Transpose* transpose = (Transpose*) op.ptr;
+                assert(inList.size() == 1);
+                int ndim = inputs[0].numDim, permIdx = transpose->permIdx;
+                std::vector<int> permVec;
+                int permArray[MAX_DIM];
+                for (int i = ndim - 1; i >= 0; i--) {
+                    permArray[i] = permIdx % ndim;
+                    permIdx = permIdx / ndim;
+                }
+                assert(permIdx == 0);
+                for (int i = 0; i < ndim; i++)
+                    for (int j = i + 1; j < ndim; j++)
+                        assert(permArray[i] != permArray[j]);
+                for (int i = 0; i < ndim; i++)
+                    permVec.push_back(permArray[i]);
+                opPtr = new Transpose(model, inputs[0], permVec, transpose->shuffle);
+                break;
+            }
+            case OP_EW_ADD:
+            case OP_EW_MUL:
+            {
+                //Element* element = (Element*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Element(model, op.ptr->type, inputs[0], inputs[1]);
+                break;
+            }
+            case OP_ENLARGE:
+            {
+                //Enlarge* enlarge = (Enlarge*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Enlarge(model, inputs[0], inputs[1]);
+                break;
+            }
+            case OP_MERGE_GCONV:
+            {
+                MergeGConv* merge = (MergeGConv*) op.ptr;
+                assert(inList.size() == 1);
+                opPtr = new MergeGConv(model, inputs[0], merge->count);
+                break;
+            }
+            case OP_POOL2D_MAX:
+            case OP_POOL2D_AVG:
+            {
+                Pool2D* pool = (Pool2D*) op.ptr;
+                assert(inList.size() == 2);
+                opPtr = new Pool2D(model, inputs[0], inputs[1], pool->type,
+                                   pool->kernelH, pool->kernelW,
+                                   pool->strideH, pool->strideW,
+                                   pool->padding, pool->activation);
+                break;
+            }
+            case OP_RELU:
+            case OP_SIGMOID:
+            case OP_TANH:
+            {
+                Activation* act = (Activation*) op.ptr;
+                assert(inList.size() == 1);
+                opPtr = new Activation(model, inputs[0], act->type, act->inPlace);
+                break;
+            }
+            case OP_BATCHNORM:
+            {
+                assert(inList.size() == 5);
+                opPtr = new BatchNorm(model, inputs[0], inputs[1], inputs[2], inputs[3], inputs[4]);
+                break;
+            }
+            case OP_SPLIT:
+            {
+                Split* split = (Split*) op.ptr;
+                assert(inList.size() == 1);
+                opPtr = new Split(model, inputs[0], split->axis, split->sizes);
+                break;
+            }
+            case OP_INPUT:
+            case OP_WEIGHT:
+            case OP_DROPOUT:
+            {
+                assert(inList.size() == 1);
+                opPtr = new NoOp(model, inputs[0], op.ptr->type);
+                break;
+            }
+            case OP_CONCAT:
+            {
+                Concat* concat = (Concat*) op.ptr;
+                opPtr = new Concat(model, concat->axis, inList.size(), inputs, concat->needCopy);
+                break;
+            }
+            default:
+                printf("op.type = %d\n", op.ptr->type);
+                assert(false);
+        }
+        // Step 3: map new Op
+        // printf("Step 3: map new Op\n");
+        opPtr->map();
+        opBaseListSingleton.push_back(opPtr);
+        for (it2 = outList.begin(); it2 != outList.end(); it2++) {
+            todos[it2->dstOp] --;
+            //printf("myOp(%zu) dstOp(%zu) dstType(%d) dstTodos(%d)\n",
+            //    it2->srcOp.guid, it2->dstOp.guid,
+            //    it2->dstOp.ptr->type, todos[it2->dstOp]);
+            if (todos[it2->dstOp] == 0) {
+                opList.push_back(it2->dstOp);
+            }
+        }
+    }
+#ifdef VERBOSE_PRINTS
+    for (int i =0; i < opList.size(); i++) {
+        printf("opList[%d]: guid(%zu) type(%d)\n", i, opList[i].guid, opList[i].ptr->type);
+    }
+    for (it = inEdges.begin(); it != inEdges.end(); it++) {
+        printf("op: guid(%zu) type(%d)\n", it->first.guid, it->first.ptr->type);
+        std::set<Edge, EdgeCompare> inList = it->second;
+        std::set<Edge, EdgeCompare>::const_iterator it2;
+        int cnt = 0;
+        for (it2 = inList.begin(); it2 != inList.end(); it2++) {
+            printf("    inEdge[%d]: srcOp(%zu) srcIdx(%d) dstOp(%zu) dstIdx(%d)\n", cnt++, it2->srcOp.guid, it2->srcIdx, it2->dstOp.guid, it2->dstIdx);
+        }
+    }
+#endif
+
+    assert(opList.size() == inEdges.size());
+    assert(opList.size() == opBaseListSingleton.size());
+}
+
+TensorHandle Graph::forward_prop(const int* dims, const DATATYPE* data)
+{
+    return model->get_runtime_output(dims, data, &opBaseListSingleton);
+}
