@@ -256,6 +256,7 @@ cdef extern from "taso/ops.h" namespace "taso":
         TensorHandle unsqueeze(const TensorHandle input,
                                const vector[int] axes)
         TensorHandle new_input(int ndim, const int* dims)
+        TensorHandle new_input_with_value(int ndim, const int* dims)
         TensorHandle new_weight(int ndim, const int* dims, const float* data)
         Graph* optimize(float alpha, int budget, bool print_subst)
         int get_operator_list(Op* ops, size_t maxNumOps)
@@ -270,3 +271,10 @@ cdef extern from "taso/ops.h" namespace "taso":
         void print_measurements()
         float total_cost()
         float run()
+
+        # added
+        # declared in include/taso/ops.h
+        # defined in src/core/ops.cc
+        TensorHandle get_output(const int* dims, const float* data);
+        void buildOpBaseList()
+        TensorHandle forward_prop(const int* dims, const float* data);
