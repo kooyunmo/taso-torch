@@ -1660,7 +1660,8 @@ TensorHandle Graph::get_output(const int* dims, const DATATYPE* data)
     assert(opList.size() == inEdges.size());
     assert(opList.size() == opBaseList.size());
 
-    return model->get_runtime_output(dims, data, &opBaseList);
+    TensorHandle temp = new Tensor();
+    return temp;
 }
 
 
@@ -1905,7 +1906,12 @@ void Graph::buildOpBaseList(void)
     assert(opList.size() == opBaseListSingleton.size());
 }
 
-TensorHandle Graph::forward_prop(const int* dims, const DATATYPE* data)
+float* Graph::forward_prop(const int* dims, const DATATYPE* data)
 {
     return model->get_runtime_output(dims, data, &opBaseListSingleton);
+}
+
+void Graph::freeptr(void *ptr)
+{
+    free(ptr);
 }
