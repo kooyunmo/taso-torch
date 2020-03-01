@@ -662,7 +662,7 @@ public:
   void print_costs(void);
   TensorHandle get_output(const int* dims, const DATATYPE* data);       // added
   void buildOpBaseList();       // added
-  float* forward_prop(const int* dims, const DATATYPE* data);       // added
+  float* forward_prop(const int* in_dims, const int* out_dims, const DATATYPE* data);       // added
   void freeptr(void *ptr);      // added
   void print_measurements(void);
 #ifdef TRT
@@ -1449,7 +1449,7 @@ public:
   float measure_oplist_runtime(const std::vector<OpBase*>& list);
   bool broadcastable(const Tensor& t1, const Tensor& t2);
   // added: defined in src/cudnn/ops_cudnn.cu
-  float* get_runtime_output(const int* dims, const DATATYPE* data, const std::vector<OpBase*> *list);
+  float* get_runtime_output(const int* in_dims, const int* out_dims, const DATATYPE* data, const std::vector<OpBase*> *list);
 public:
   bool isTraining;
   bool print_cost;

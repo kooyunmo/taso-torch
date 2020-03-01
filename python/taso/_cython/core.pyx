@@ -61,14 +61,17 @@ def get_activation_mode(activation):
     else:
         assert(False)
 
-cdef convert_to_python(float *ptr, int n1, int n2, int n3, int n4):
+cdef convert_to_python(float *ptr, tuple out_dims):
     cdef int i
-    cdef int n = n1 * n2 * n3 * n4
-    l = list()
-    for i in range(n):
-        l.append(ptr[i])
+    cdef int num = 1
+    for n in out_dims:
+        num *= n
 
-    return np.array(l).reshape(n1, n2, n3, n4)
+    li = list()
+    for i in range(num):
+        li.append(ptr[i])
+
+    return np.array(li).reshape(out_dims)
 
 
 cdef class PyModel:
@@ -205,28 +208,35 @@ cdef class PyGraph:
         cdef TensorHandle handle = self.p_graph.get_output(dim_array, arr.data.as_floats)
         t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
         return PyTensor(t)
+        
 
     def build_graph(self):
         self.p_graph.buildOpBaseList()
 
-    def taso_forward(self, data):
+
+    def taso_forward(self, data, tuple out_dims):
         '''
         @param:
             - data should be numpy array
         '''
+        assert (isinstance(data, np.ndarray))
+
         cdef int dim_array[16]
-        # assert (isinstance(data, np.ndarray))
+        cdef int out_dim_array[16]
+        
         dims = data.shape
+        assert(len(dims) == len(out_dims))
 
         val = array.array('f', data.flatten().tolist())
         cdef array.array arr = val
 
         for i in range(0, len(dims)):
             dim_array[i] = dims[i]
+            out_dim_array[i] = out_dims[i]
 
-        array_ptr = self.p_graph.forward_prop(dim_array, arr.data.as_floats)
+        array_ptr = self.p_graph.forward_prop(dim_array, out_dim_array, arr.data.as_floats)
        
-        pythonlist = convert_to_python(array_ptr, 1, 512, 7, 7)
+        pythonlist = convert_to_python(array_ptr, out_dims)
 
         self.p_graph.freeptr(array_ptr)
         

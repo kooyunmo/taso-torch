@@ -150,19 +150,18 @@ float Model::measure_oplist_runtime(const std::vector<OpBase*>& opBaseList)
 }
 
 /********** Added ************/
-// TensorHandle is typedef of Tensor *
-// TODO output dimension should be calculated (passed by argument...?)
-float* Model::get_runtime_output(const int* dims, const DATATYPE* data, const std::vector<OpBase*> *opBaseList)
+float* Model::get_runtime_output(const int* in_dims,
+                                 const int* out_dims,
+                                 const DATATYPE* data,
+                                 const std::vector<OpBase*> *opBaseList)
 {
-    const int batch_count = dims[0];
-    const int in_channel = dims[1];
-    const int in_height = dims[2];
-    const int in_width = dims[3];
+    const int batch_count = in_dims[0];
+    const int in_channel = in_dims[1];
+    const int in_height = in_dims[2];
+    const int in_width = in_dims[3];
 
     float inData[batch_count][in_channel][in_height][in_width];     // host input data
-    // TODO outData should be dynamically allocated
-    // float outData[1][256][7][7];    // host output data
-    float* outData = (float *)malloc(1 * 256 * 7 * 7 * sizeof(float));
+    float* outData = (float *)malloc(out_dims[0] * out_dims[1] * out_dims[2] * out_dims[3] * sizeof(float));
     float* inData_d;         // cuda device input data
     float* outData_d;        // cuda device output data
 
@@ -170,20 +169,16 @@ float* Model::get_runtime_output(const int* dims, const DATATYPE* data, const st
  
     memcpy(inData, data, sizeof(data)); 
 
-
     // A pointer for the input of first operator, and a pointer for the output of last operator
     inData_d = (float *)((oplist[0]->inputs[0]).data_ptr);
     outData_d = (float *)((oplist[oplist.size()-1]->outputs[0]).data_ptr);
     
-    // memcpy form CPU to GPU
     checkCUDA(cudaMemcpy(inData_d, inData, sizeof(inData), cudaMemcpyHostToDevice));
 
-    //checkCUDA(cudaEventRecord(startEvent));
     for (int i = 0; i < oplist.size(); i++) {
         oplist[i]->forward();
     }
         
-    // printf("output address: %p\n", outData_d);
     checkCUDA(cudaMemcpy(outData, outData_d, sizeof(outData), cudaMemcpyDeviceToHost));
     
     return outData;
