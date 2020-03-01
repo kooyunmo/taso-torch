@@ -1,0 +1,20 @@
+#######################################################################
+#                     VGG-19 Performance Evaluation                   #
+# =================================================================== #
+#    time: 2020-03-02 00:24:55.775503                                 #
+#######################################################################
+
+ONNX runtime inference time before taso: 0.0341859245300293sec
+
+cuDNN runtime inference time before taso: 0.012909364700317384sec
+
+cuDNN runtime inference time after taso optimization: 0.01197856903076172sec
+
+ONNX runtime inference time after taso optimization: 0.1012074112892151sec
+
+Imperative PyTorch inference time: 0.00406337022781372sec
+
+TorchScript inference time: 0.004067387580871582sec
+
+PyTorch trace inference time: 0.0040779423713684084sec
+

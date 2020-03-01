@@ -1,0 +1,20 @@
+#######################################################################
+#                    ResNet-50 Performance Evaluation                 #
+# =================================================================== #
+#    time: 2020-03-01 23:57:53.906586                                 #
+#######################################################################
+
+ONNX runtime inference time before taso: 0.015376301288604736sec
+
+cuDNN runtime inference time before taso: 0.019466989994049073sec
+
+cuDNN runtime inference time after taso optimization: 0.018693862915039064sec
+
+ONNX runtime inference time after taso optimization: 0.03891413831710815sec
+
+Imperative PyTorch inference time: 0.007902652263641357sec
+
+TorchScript inference time: 0.00559296989440918sec
+
+PyTorch trace inference time: 0.005490417957305908sec
+

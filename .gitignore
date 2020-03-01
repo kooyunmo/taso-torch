@@ -6,3 +6,7 @@ python/build/
 python/dist/
 python/taso.egg-info/
 python/taso/_cython/core.cpp
+
+
+taso-examples/onnx_models
+taso-examples/torch/onnx_models
