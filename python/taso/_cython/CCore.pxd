@@ -275,7 +275,7 @@ cdef extern from "taso/ops.h" namespace "taso":
         # added
         # declared in include/taso/ops.h
         # defined in src/core/ops.cc
-        TensorHandle get_output(const int* dims, const float* data);
+        TensorHandle get_output(const int* dims, const float* data)
         void buildOpBaseList()
-        float* forward_prop(const int* dims, const float* data);
-        void freeptr(void *ptr);
+        float* forward_prop(const int* in_dims, const int* out_dims, const float* data)
+        void freeptr(void *ptr)

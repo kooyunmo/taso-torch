@@ -1906,9 +1906,9 @@ void Graph::buildOpBaseList(void)
     assert(opList.size() == opBaseListSingleton.size());
 }
 
-float* Graph::forward_prop(const int* dims, const DATATYPE* data)
+float* Graph::forward_prop(const int* in_dims, const int* out_dims, const DATATYPE* data)
 {
-    return model->get_runtime_output(dims, data, &opBaseListSingleton);
+    return model->get_runtime_output(in_dims, out_dims, data, &opBaseListSingleton);
 }
 
 void Graph::freeptr(void *ptr)
