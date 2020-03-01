@@ -208,19 +208,11 @@ cdef class PyGraph:
         cdef TensorHandle handle = self.p_graph.get_output(dim_array, arr.data.as_floats)
         t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
         return PyTensor(t)
+        
 
     def build_graph(self):
         self.p_graph.buildOpBaseList()
 
-    def new_input(self, *, tuple dims):
-        cdef int ndim = len(dims)
-        cdef int dim_array[16]
-        assert (ndim < 16)
-        for i in range(0, len(dims)):
-            dim_array[i] = dims[i]
-        cdef TensorHandle handle = self.p_graph.new_input(ndim, dim_array)
-        t = ctypes.cast(<unsigned long long>handle, ctypes.c_void_p)
-        return PyTensor(t)
 
     def taso_forward(self, data, tuple out_dims):
         '''
