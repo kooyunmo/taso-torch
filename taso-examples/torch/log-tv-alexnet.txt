@@ -1,20 +1,20 @@
 #######################################################################
 #                     AlexNet Performance Evaluation                  #
 # =================================================================== #
-#    time: 2020-03-02 00:28:23.932676                                 #
+#    time: 2020-03-02 18:31:32.914656                                 #
 #######################################################################
 
-ONNX runtime inference time before taso: 0.002460131645202637sec
+ONNX runtime inference time before taso: 0.0024300622940063477sec
 
-cuDNN runtime inference time before taso: 0.010705151557922364sec
+cuDNN runtime inference time before taso: 0.01218996524810791sec
 
-cuDNN runtime inference time after taso optimization: 0.010565218925476074sec
+cuDNN runtime inference time after taso optimization: 0.011950688362121582sec
 
-ONNX runtime inference time after taso optimization: 0.008306403160095215sec
+ONNX runtime inference time after taso optimization: 0.008458783626556396sec
 
-Imperative PyTorch inference time: 0.0010837745666503907sec
+Imperative PyTorch inference time: 0.0012527632713317872sec
 
-TorchScript inference time: 0.0007753586769104004sec
+TorchScript inference time: 0.0007509398460388184sec
 
-PyTorch trace inference time: 0.000781242847442627sec
+PyTorch trace inference time: 0.0007526469230651855sec
 

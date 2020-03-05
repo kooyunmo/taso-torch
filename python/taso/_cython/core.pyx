@@ -83,6 +83,7 @@ cdef class PyModel:
     def __dealloc__(self):
         del self.p_model
 
+
 cdef class PyTensor:
     cdef TensorHandle ctensor # Hold a Tensor instance
 
@@ -165,6 +166,7 @@ op_table[OP_SLICE] = "Slice"
 op_table[OP_RESIZE] = "Resize"
 # op_table[OP_BROADCAST_ADD] = "BroadcastAdd"
 op_table[OP_BROADCAST_ADD] = "Add"
+
 
 cdef class PyGraph:
     cdef Graph *p_graph #Hold a Graph instance
@@ -622,7 +624,7 @@ cdef class PyGraph:
 
     def get_operator_list(self):
         cdef Op ops[4192]
-        cdef int numOps = self.p_graph.get_operator_list(ops, 4192)
+        cdef int numOps = self.p_graph.get_operator_list(ops, 4192)     # reference로 넘겨진 ops에 opList가 담김
         opList = list()
         for i in range(numOps):
             #print(ops[i].guid)

@@ -427,7 +427,10 @@ TensorHandle Graph::new_weight(const Tensor& weight)
 
 Graph* Graph::optimize(float alpha, int budget, bool print_subst)
 {
-  std::vector<GraphXfer*> xfers;
+  std::vector<GraphXfer*> xfers;    // xfers accumulates substitutions.
+  // i: stride height
+  // j: stride width
+  // Generate substitution for each stride and padding combinations.
   for (int i = 1; i < 3; i++)
     for (int j = 0; j < 2; j++) {
       PaddingMode pad_mode = (j == 0) ? PD_MODE_SAME : PD_MODE_VALID;
@@ -461,7 +464,21 @@ Graph* Graph::optimize(float alpha, int budget, bool print_subst)
   //xfers.push_back(create_enlarge_conv_xfer(model));
   //xfers.push_back(create_resnet_merge_xfer(model));
 
+  /***
+   * 최적의 그래프(G_opt)를 찾기 위한 첫 단계로 모든 후보 그래프들은 우선순위 큐 (priority queue) P에 들어간다.
+   * 이 중에서 cost가 큰 것부터 dequeue를 하는데, dequeue된 그래프에 대해서는 substitution을 apply하여
+   * 새로운 equivalent graph G'을 만든다. 만약 새롭게 만들어진 G'이 local optimal graph 보다 cost가
+   * 작다면 G'을 local optimal graph로 지정한다. 이와 같은 과정을 거쳐서 최종적으로 optimal graph로 남은
+   * 그래프가 G_opt가 된다.
+   */
   std::priority_queue<Graph*, std::vector<Graph*>, GraphCompare> candidates;
+
+  /***
+   * 생성된 여러 개의 computation graph 중 random tensor를 input(operand)으로 주었을 때 동일한
+   * 결과값(fingerprint)을 갖는 computation graph들을 모아 candidate으로 설정한다. 이 과정을 효율적으로
+   * 수행하기 위하여 TASO는 random input에 대한 output(fingerprint) 값들을 기준으로 hash table을
+   * 구성하고, 각각의 entry마다 그에 해당하는 computation graph를 저장한다.
+   */ 
   std::set<size_t> hashmap;
   candidates.push(this);
   hashmap.insert(hash());
@@ -476,7 +493,7 @@ Graph* Graph::optimize(float alpha, int budget, bool print_subst)
   int maxNumOps = inEdges.size();
   //long long start_time = microsecond_timer();
   ofstream timer_fs;
-  timer_fs.open("timer.txt");
+  //timer_fs.open("timer.txt");
   printf("\n        ===== Start Cost-Based Backtracking Search =====\n");
   while (!candidates.empty()) {
     Graph *subGraph = candidates.top();
@@ -487,7 +504,7 @@ Graph* Graph::optimize(float alpha, int budget, bool print_subst)
       bestGraph = subGraph;
     }
     if (counter > budget) {
-      // TODO: free all remaining candidates when budget exhausted 
+      // TODO: free all remaining candidates when budget exhausted
       break;
     }
     if (counter % 1 == 0) {

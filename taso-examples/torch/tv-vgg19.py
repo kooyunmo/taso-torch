@@ -172,6 +172,8 @@ if __name__ == '__main__':
     print("cuDNN runtime inference time after taso optimization: {}sec".format(time_sum / len(test_input)))
     f.write("cuDNN runtime inference time after taso optimization: {}sec\n\n".format(time_sum / len(test_input)))
 
+    # In TASO system, two output values are regarded as the same if the diff is less than the threshold (10^{-5})
+    print("There can be tiny difference between the output before and after.")
     print("diff: {}".format(np.subtract(res1, res2)))
 
     print("taso.export_onnx()")

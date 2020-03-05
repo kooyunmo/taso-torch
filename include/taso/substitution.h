@@ -130,6 +130,7 @@ struct SubEdgeCompare {
   };
 };
 
+// return whether left graph cost is greater than the right graph cost.
 class GraphCompare {
 public:
   bool operator() (Graph* lhs, Graph* rhs) {

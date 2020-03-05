@@ -694,7 +694,7 @@ def load_onnx(filename):
     '''
     graph = core.PyGraph()
     model = onnx.load(filename)
-    tensors = dict()
+    tensors = dict()        # key: weight tensor 이름 / value: tensor 값   ex) {'classifier.1.bias': array([-0.00379605, ... , -0.00718626], dtype=float32), ... }
     for t in model.graph.input:
         dims = list()
         for d in t.type.tensor_type.shape.dim:
@@ -702,45 +702,45 @@ def load_onnx(filename):
         weight_data = None
         for weight in model.graph.initializer:
             if (weight.name == t.name):
-                weight_data = numpy_helper.to_array(weight)
+                weight_data = numpy_helper.to_array(weight)     # numpy array is assigned
         # We classify an input to be a pure input if we cannot find its weights
         if weight_data is None:
             tensors[t.name] = graph.new_input(dims=tuple(dims))
         else:
-            tensors[t.name] = graph.new_weight(dims=tuple(dims), data=weight_data)
+            tensors[t.name] = graph.new_weight(dims=tuple(dims), data=weight_data)    # weight tensor is initialized with numpy array
 
     # Add initializers not in the inputs
-    for weight in model.graph.initializer:
+    for weight in model.graph.initializer:          # model.graph.initializer는 dims, data_type, name, raw_data를 가지고 있음.
         if weight.name not in tensors:
             if weight.dims:
                 dims = list(weight.dims)
                 weight_data = numpy_helper.to_array(weight)
-                tensors[weight.name] = graph.new_weight(dims=tuple(dims), data=weight_data)
+                tensors[weight.name] = graph.new_weight(dims=tuple(dims), data=weight_data)     # ex) {'classifier.1.bias': array([-0.00379605, ... , -0.00718626], dtype=float32), ... }
 
     # Reorder nodes to satisfy data dependencies
-    tensor_owner = dict()
-    name_to_op = dict()
+    tensor_owner = dict()   # key: str(output #) / value: str(op.name)   ex) {'17': 'Conv_0', ...}
+    name_to_op = dict()     # key: str / value: onnx NodeProto
     idx = 0
-    for op in model.graph.node:
+    for op in model.graph.node:             # each node contains 'input', 'output', 'op_type', and 'attribute'
         # Assign a name to the node if empty
-        if len(op.name) == 0:
-            op.name = op.op_type + '_' + str(idx)
+        if len(op.name) == 0:       # when op.name == ''
+            op.name = op.op_type + '_' + str(idx)       # ex) op.name = 'Conv_0'
         idx += 1
         name_to_op[op.name] = op
         for output in op.output:
-            tensor_owner[output] = op.name
-    out_edges = dict()
-    dependents = dict()
-    node_list = list()
+            tensor_owner[output] = op.name          # ex) tensor_owner: {'17': 'Conv_0'}
+    out_edges = dict()      # key: str(op.name of src node) / value: str(op.name of dst node) (어떤 op의 out_edge와 연결되는 op들의 리스트) ex) {'Conv_0': ['Relu_1'], 'Relu_1': ['MaxPool_2']}
+    dependents = dict()     # key: str(op.name) / value: int(refcnt)  ex) {'Conv_0': 0, 'Relu_1': 1, 'MaxPool_2': 1, ... }      node_list를 만들기 위한 것. 나중엔 모든 value가 0이 됨.
+    node_list = list()      # list of all nodes in the graph  ex) ['Conv_0', 'Relu_1', 'MaxPool_2', 'Conv_3', ... ]
     for op in model.graph.node:
         dependents[op.name] = 0
-        for input in op.input:
-            if input in tensor_owner:
-                dependents[op.name] += 1
-                input_node = tensor_owner[input]
+        for input in op.input:      # ex) ['input.1', 'features.0.weight', 'features.0.bias'], ['17'], ['18']
+            if input in tensor_owner:      # if there is a input-output connection between layers
+                dependents[op.name] += 1        # increase dependency count
+                input_node = tensor_owner[input]      # input_node is 'str(op.name)'
                 if input_node not in out_edges:
                     out_edges[input_node] = list()
-                out_edges[input_node].append(op.name)
+                out_edges[input_node].append(op.name)       # 연결된 두 노드를 매핑하여 out_edges에 저장 {'src': 'dst'}
         if dependents[op.name] == 0:
             node_list.append(op.name)
     idx = 0
@@ -757,12 +757,12 @@ def load_onnx(filename):
     # Add nodse into TASO graph
     cnt = 0
     for opname in node_list:
-        op = name_to_op[opname]
+        op = name_to_op[opname]     # op.name을 통해서 NodeProto를 얻음 (NodeProto는 input, output, op_type, attribute를 포함)
         #print(cnt, op.op_type, opname)
         cnt += 1
         if op.op_type in xf_operators:
             try:
-                outputs = xf_operators[op.op_type](op, graph, tensors, model.graph.initializer)
+                outputs = xf_operators[op.op_type](op, graph, tensors, model.graph.initializer)         # 각 operator에 맞게 함수 호출
                 if not isinstance(outputs, list):
                     outputs = [outputs]
                 assert len(outputs) == len(op.output), "Number of output tensors mismatch"
@@ -847,34 +847,33 @@ def export_onnx(graph):
     Export a XFlow graph to an ONNX graph
     
     @params
-    graph is a XFlow graph
+    graph is a XFlow graph (<class 'taso.core.PyGraph'>)
 
     @return
-    A in-memory ONNX graph
+    A in-memory ONNX graph (<class 'onnx.onnx_ONNX_REL_1_6_ml_pb2.ModelProto'>)
     '''
-    opList = graph.get_operator_list()
-    graph_nodes = list()
-    graph_inputs = list()
-    graph_initializers = list()
+    opList = graph.get_operator_list()      # [{'guid': 117}, {'guid': 118}, ... ]
+    graph_nodes = list()            # NodeProto의 list
+    graph_inputs = list()           # ValueInfoProto의 list
+    graph_initializers = list()     # TensorProto의 list
     graph_outputs = list()
-    output_guids = dict()
+    output_guids = dict()           # {(132, 0): {'guid': 132}}와 같은 dictionary
     for op in opList:
-        mytype = graph.get_operator_type(op)
-        inedges = graph.get_input_edges(op)
+        mytype = graph.get_operator_type(op)        # Conv, Relu, MaxPool과 같은 op의 타입명
+        inedges = graph.get_input_edges(op)         # [{'srcOp': {'guid': 100}, 'dstOp': {'guid': 117}, 'srcIdx': 0, 'dstIdx': 0}, {'srcOp': {'guid': 108}, 'dstOp': {'guid': 117}, 'srcIdx': 0, 'dstIdx': 1}]
         #print("op.guid={} mytype={} inedges={}".format(op['guid'], mytype, len(inedges)))
         inputs = list()
         for e in inedges:
-            intype = graph.get_operator_type(e['srcOp'])
-            inputs.append(_input_tensor_name(graph, e, op))
-            output_guids.pop((e['srcOp']['guid'], e['srcIdx']), None)
+            intype = graph.get_operator_type(e['srcOp'])        # 'Input', 'Weight', 'Conv', 'Relu'와 같은 op type명
+            inputs.append(_input_tensor_name(graph, e, op))     # [['data'], ['data', 'Conv117_weight'], ['Conv117_fwd0'], ...]
+            output_guids.pop((e['srcOp']['guid'], e['srcIdx']), None)       # The pop() method removes and returns an element from a dictionary having the given key. 없으면 None 리턴
             if intype == 'Input' or intype == 'Weight':
-                graph_inputs.append(helper.make_tensor_value_info(_input_tensor_name(graph, e, op),
+                graph_inputs.append(helper.make_tensor_value_info(_input_tensor_name(graph, e, op),         # ValueInfoProto 각각을 append
                                     TensorProto.FLOAT, graph.get_input_dims(op, e['dstIdx'])))
             if intype == 'Weight':
-                graph_initializers.append(helper.make_tensor(_input_tensor_name(graph, e, op),
-                                          TensorProto.FLOAT, graph.get_input_dims(op, e['dstIdx']),
-                                          graph.get_weight_value(e['srcOp'])))
-
+                graph_initializers.append(helper.make_tensor(_input_tensor_name(graph, e, op),              # TensorProto 각각을 append
+                                            TensorProto.FLOAT, graph.get_input_dims(op, e['dstIdx']),
+                                            graph.get_weight_value(e['srcOp'])))
         # add a second input for Reshape
         if mytype == 'Reshape':
             inputs.append('Reshape_attr{}'.format(op['guid']))
@@ -888,6 +887,7 @@ def export_onnx(graph):
         node = helper.make_node(mytype, inputs, outputs, '{}{}'.format(mytype, op['guid']))
         _add_node_attribute(graph, node, op, mytype)
         graph_nodes.append(node)
+
     for guid, idx in output_guids:
         op = output_guids[(guid, idx)]
         graph_outputs.append(helper.make_tensor_value_info(_output_tensor_name(graph, op, idx),

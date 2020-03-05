@@ -676,7 +676,7 @@ private:
   TensorHandle weight_wrapper(const TensorHandle _weight);
 public:
   Model *model;
-  std::vector<OpBase*> opBaseListSingleton;
+  std::vector<OpBase*> opBaseListSingleton;   // added
   float totalCost;
   std::map<Op, std::set<Edge, EdgeCompare>, OpCompare> inEdges, outEdges;
   struct GraphSubst {
